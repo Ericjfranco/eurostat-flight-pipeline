@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: flight-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipeline_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pipeline} -d ${POSTGRES_DB:-airflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  airflow-init:
+    build: .
+    container_name: flight-airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &airflow-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-pipeline}:${POSTGRES_PASSWORD:-pipeline_dev}@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      PYTHONPATH: /opt/airflow
+      EUROSTAT_DATASET: ${EUROSTAT_DATASET:-ttr00017}
+      EUROSTAT_LANGUAGE: ${EUROSTAT_LANGUAGE:-EN}
+      EUROSTAT_LAST_PERIODS: ${EUROSTAT_LAST_PERIODS:-3}
+      DATA_DB_HOST: postgres
+      DATA_DB_PORT: "5432"
+      DATA_DB_NAME: ${DATA_DB_NAME:-flight_data}
+      DATA_DB_USER: ${POSTGRES_USER:-pipeline}
+      DATA_DB_PASSWORD: ${POSTGRES_PASSWORD:-pipeline_dev}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql:ro
+      - ./data:/opt/airflow/data
+      - ./logs/airflow:/opt/airflow/logs
+    command: >
+      bash -c "airflow db migrate &&
+      (airflow users create --username ${AIRFLOW_ADMIN_USER:-admin}
+      --password ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      --firstname Admin --lastname User --role Admin
+      --email admin@example.com || true)"
+
+  airflow-webserver:
+    build: .
+    container_name: flight-airflow-webserver
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql:ro
+      - ./data:/opt/airflow/data
+      - ./logs/airflow:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+    command: airflow webserver
+
+  airflow-scheduler:
+    build: .
+    container_name: flight-airflow-scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql:ro
+      - ./data:/opt/airflow/data
+      - ./logs/airflow:/opt/airflow/logs
+    command: airflow scheduler
+
+volumes:
+  postgres_data:
