@@ -11,6 +11,60 @@ Pipeline de dados públicos de transporte aéreo com Python, Pandas, Apache Airf
 
 ## Arquitetura
 
+flowchart TB
+    USER["Usuário / Desenvolvedor"]
+
+    subgraph DOCKER["Docker Compose"]
+        subgraph AIRFLOW["Apache Airflow"]
+            WEB["Airflow Webserver<br/>Interface Web :8080"]
+            SCHED["Airflow Scheduler"]
+            DAG["DAG: eurostat_flight_pipeline"]
+            WEB --> SCHED
+            SCHED --> DAG
+        end
+
+        subgraph PIPELINE["Pipeline ETL - Python"]
+            EXT["Extract<br/>Requests"]
+            RAW[("Dados brutos<br/>JSON")]
+            TRANS["Transform<br/>Pandas"]
+            CSV[("Dados tratados<br/>CSV")]
+            LOAD["Load<br/>Psycopg2"]
+            
+            EXT --> RAW
+            RAW --> TRANS
+            TRANS --> CSV
+            CSV --> LOAD
+        end
+
+        subgraph DATABASE["PostgreSQL"]
+            META[("Banco airflow<br/>Metadados do Airflow")]
+            DATA[("Banco flight_data<br/>fact_air_traffic<br/>etl_execution_log")]
+        end
+
+        DAG --> EXT
+        DAG --> TRANS
+        DAG --> LOAD
+        WEB -.-> META
+        SCHED -.-> META
+        LOAD --> DATA
+    end
+
+    EURO["Eurostat Statistics API<br/>Dataset ttr00017"]
+
+    USER --> WEB
+    EXT <-->|"HTTP / JSON-stat 2.0"| EURO
+
+    classDef source fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef process fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef storage fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef orchestration fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+
+    class EURO source
+    class EXT,TRANS,LOAD process
+    class RAW,CSV,META,DATA storage
+    class WEB,SCHED,DAG orchestration
+
+
 O projeto utiliza uma arquitetura ETL (Extract, Transform, Load),
 orquestrada pelo Apache Airflow e executada em containers Docker.
 
@@ -56,6 +110,7 @@ O PostgreSQL hospeda dois bancos lógicos:
 
 ## Estrutura do Repositório
 
+```text
 eurostat-flight-pipeline/
 ├── dags/
 │   └── eurostat_flight_pipeline.py
@@ -77,6 +132,7 @@ eurostat-flight-pipeline/
 ├── requirements.txt
 ├── .env.example
 └── README.md
+```
 
 ## Serviços
 
